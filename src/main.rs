@@ -26,7 +26,8 @@ fn main() {
 
     if command == "decode" {
         // You can use print statements as follows for debugging, they'll be visible when running tests.
-        println!("Orange");
+        eprintln!("orange");
+        eprintln!("strawberry");
 
         // Uncomment this block to pass the first stage
         let encoded_value = &args[2];
