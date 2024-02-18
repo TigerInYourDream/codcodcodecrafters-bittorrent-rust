@@ -1,12 +1,11 @@
 use anyhow::{anyhow, Result};
+use serde_bencode;
 use serde_json;
 use std::env;
-// Available if you need it!
-use serde_bencode;
 
 pub fn decode(encode: &str) -> Result<serde_json::Value> {
     let value = serde_bencode::from_str(encode).map_err(|e| anyhow!(e.to_string()))?;
-    return convert(value);
+    convert(value)
 }
 
 // serde_bencode::value::Value -> serde_json::Value
@@ -23,11 +22,19 @@ pub fn convert(value: serde_bencode::value::Value) -> Result<serde_json::Value> 
         serde_bencode::value::Value::List(list) => {
             let l = list
                 .into_iter()
-                .map(|v| convert(v))
+                .map(convert)
                 .collect::<Result<Vec<serde_json::Value>>>()?;
             Ok(serde_json::Value::Array(l))
         }
-        _ => Err(anyhow!("Not supported")),
+        serde_bencode::value::Value::Dict(d) => {
+            let mut map = serde_json::Map::new();
+            for (k, v) in d {
+                let key = String::from_utf8(k)?;
+                let value = convert(v)?;
+                map.insert(key, value);
+            }
+            Ok(serde_json::Value::Object(map))
+        }
     }
 }
 
@@ -50,6 +57,6 @@ fn main() {
             }
         }
     } else {
-        println!("unknown command: {}", args[1])
+        eprintln!("unknown command: {}", args[1])
     }
 }
