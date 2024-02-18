@@ -1,26 +1,34 @@
+use anyhow::{anyhow, Result};
 use serde_json;
 use std::env;
-
 // Available if you need it!
-// use serde_bencode
+use serde_bencode;
 
-#[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
-    // If encoded_value starts with a digit, it's a number
-    // i52e --> 52 
-    if let Some(result) = encoded_value.strip_prefix('i') {
-        if let Some(number) = result.strip_suffix('e') {
-            if let Ok(number) = number.parse::<i64>() {
-                return number.into();
-            }
+pub fn decode(encode: &str) -> Result<serde_json::Value> {
+    let value = serde_bencode::from_str(encode).map_err(|e| anyhow!(e.to_string()))?;
+    return convert(value);
+}
+
+// serde_bencode::value::Value -> serde_json::Value
+pub fn convert(value: serde_bencode::value::Value) -> Result<serde_json::Value> {
+    match value {
+        serde_bencode::value::Value::Bytes(v) => {
+            let string = String::from_utf8(v)?;
+            Ok(serde_json::Value::String(string))
         }
-    } else if let Some((len, rest)) = encoded_value.split_once(':') {
-        if let Ok(len) = len.parse::<usize>() {
-            return serde_json::Value::String(rest[..len].to_string());
+        serde_bencode::value::Value::Int(i) => {
+            let integers = serde_json::Value::Number(i.into());
+            Ok(integers)
         }
+        serde_bencode::value::Value::List(list) => {
+            let l = list
+                .into_iter()
+                .map(|v| convert(v))
+                .collect::<Result<Vec<serde_json::Value>>>()?;
+            Ok(serde_json::Value::Array(l))
+        }
+        _ => Err(anyhow!("Not supported")),
     }
-
-    panic!("Unhandled encoded value: {}", encoded_value)
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -31,8 +39,16 @@ fn main() {
     if command == "decode" {
         // Uncomment this block to pass the first stage
         let encoded_value = &args[2];
-        let decoded_value = decode_bencoded_value(encoded_value);
-        println!("{}", decoded_value.to_string());
+        let decoded_value = decode(encoded_value);
+        eprintln!("{:?}", decoded_value);
+        match decoded_value {
+            Ok(value) => {
+                eprintln!("{}", value.to_string());
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+            }
+        }
     } else {
         println!("unknown command: {}", args[1])
     }
