@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use crate::torrent::Torrent;
 
 pub mod torrent;
+pub mod peers;
 
 #[derive(Debug, Parser)]
 pub struct Args {
