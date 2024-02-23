@@ -1,7 +1,24 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use clap::{Parser, Subcommand};
 use serde_bencode;
 use serde_json;
-use std::env;
+use std::path::PathBuf;
+
+use crate::torrent::Torrent;
+
+pub mod torrent;
+
+#[derive(Debug, Parser)]
+pub struct Args {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    Decode { value: String },
+    Info { torrent: PathBuf },
+}
 
 pub fn decode(encode: &str) -> Result<serde_json::Value> {
     let value = serde_bencode::from_str(encode).map_err(|e| anyhow!(e.to_string()))?;
@@ -39,24 +56,32 @@ pub fn convert(value: serde_bencode::value::Value) -> Result<serde_json::Value> 
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    let command = &args[1];
-
-    if command == "decode" {
-        // Uncomment this block to pass the first stage
-        let encoded_value = &args[2];
-        let decoded_value = decode(encoded_value);
-        eprintln!("{:?}", decoded_value);
-        match decoded_value {
-            Ok(value) => {
-                eprintln!("{}", value.to_string());
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
+fn main() -> anyhow::Result<()> {
+    let arg = Args::parse();
+    match arg.command {
+        Command::Decode { value } => {
+            let decoded_value = decode(&value);
+            println!("{:?}", decoded_value);
+            match decoded_value {
+                Ok(value) => {
+                    println!("{}", value.to_string());
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                }
             }
         }
-    } else {
-        eprintln!("unknown command: {}", args[1])
+        Command::Info { torrent } => {
+            let file = std::fs::read(torrent)?;
+            let t: Torrent = serde_bencode::from_bytes(&file).context("parse torrent file")?;
+            println!("Tracker url {:?}", t.announce);
+            if let torrent::Key::SingleFile { length } = t.info.keys {
+                println!("File length: {}", length);
+            } else {
+                todo!("Handle multi-file torrents");
+            }
+        }
     }
+
+    Ok(())
 }
