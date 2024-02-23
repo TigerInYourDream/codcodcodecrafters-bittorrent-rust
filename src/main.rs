@@ -82,6 +82,11 @@ fn main() -> anyhow::Result<()> {
             }
             let hash_info = t.info_hash();
             println!("Info Hash: {}", hex::encode(&hash_info));
+            println!("Piece Length: {}", t.info.plength);
+            println!("Pieces Hashes:");
+            for hash in t.info.pieces.0 {
+                print!("{}", hex::encode(hash));
+            }
         }
     }
 
