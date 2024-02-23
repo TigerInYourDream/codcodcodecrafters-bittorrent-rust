@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha1::Digest;
 
 use self::hashes::Hashes;
 
@@ -36,6 +37,29 @@ pub enum Key {
 pub struct File {
     pub length: usize,
     pub path: Vec<String>,
+}
+
+impl Torrent {
+    pub fn info_hash(&self) -> [u8; 20] {
+        let info_bytes = serde_bencode::to_bytes(&self.info).expect("re-encode to serde_bencode");
+        let mut hasher = sha1::Sha1::new();
+        hasher.update(&info_bytes);
+        hasher.finalize().try_into().expect("20 bytes")
+    }
+
+    pub fn print_tree(&self) {
+        match &self.info.keys {
+            Key::SingleFile { length } => {
+                println!("File length: {}", length);
+            }
+            Key::MutilFile { files } => {
+                for file in files {
+                    println!("File length: {}", file.length);
+                    println!("File path: {:?}", file.path);
+                }
+            }
+        }
+    }
 }
 
 mod hashes {

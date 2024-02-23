@@ -80,6 +80,8 @@ fn main() -> anyhow::Result<()> {
             } else {
                 todo!("Handle multi-file torrents");
             }
+            let hash_info = t.info_hash();
+            println!("Info Hash: {}", hex::encode(&hash_info));
         }
     }
 
