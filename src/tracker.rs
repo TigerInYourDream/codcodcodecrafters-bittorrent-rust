@@ -31,6 +31,7 @@ pub struct TrackerRequest {
     pub compact: u8,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct TrackerResponse {
     /// An integer, indicating how often your client should make a request to the tracker in seconds.
@@ -45,6 +46,7 @@ pub struct TrackerResponse {
     pub peers: Peers,
 }
 
+#[allow(dead_code)]
 impl TrackerResponse {
     pub(crate) async fn query(t: &Torrent, info_hash: [u8; 20]) -> anyhow::Result<Self> {
         let request = TrackerRequest {

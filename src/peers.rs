@@ -9,6 +9,7 @@ use tokio::{
 };
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
+#[allow(dead_code)]
 pub(crate) struct Peer {
     addr: SocketAddrV4,
     stream: Framed<TcpStream, MessageFramer>,
@@ -16,6 +17,7 @@ pub(crate) struct Peer {
     choked: bool,
 }
 
+#[allow(dead_code)]
 impl Peer {
     pub async fn new(peer_addr: SocketAddrV4, info_hash: [u8; 20]) -> anyhow::Result<Self> {
         let mut peer = tokio::net::TcpStream::connect(peer_addr)
@@ -384,6 +386,7 @@ pub struct Bitfield {
     payload: Vec<u8>,
 }
 
+#[allow(dead_code)]
 impl Bitfield {
     pub(crate) fn has_piece(&self, piece_i: usize) -> bool {
         let byte_i = piece_i / (u8::BITS as usize);
