@@ -250,11 +250,11 @@ impl Piece {
 }
 #[repr(C, packed)]
 pub struct Handshake {
-    length: u8,
-    bittorrent: [u8; 19],
-    resverd: [u8; 8],
-    info_hash: [u8; 20],
-    peer_id: [u8; 20],
+    pub length: u8,
+    pub bittorrent: [u8; 19],
+    pub resverd: [u8; 8],
+    pub info_hash: [u8; 20],
+    pub peer_id: [u8; 20],
 }
 
 impl Handshake {
