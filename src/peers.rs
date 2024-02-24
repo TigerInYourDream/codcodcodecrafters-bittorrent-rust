@@ -1,10 +1,13 @@
-use std::{mem, net::SocketAddrV4};
+use crate::BLOCK_MAX;
 use anyhow::Context;
 use bytes::{Buf, BufMut};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
-use tokio_util::codec::{Decoder, Encoder, Framed};
 use futures_util::{SinkExt, StreamExt};
-use crate::BLOCK_MAX;
+use std::{mem, net::SocketAddrV4};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
+use tokio_util::codec::{Decoder, Encoder, Framed};
 
 pub(crate) struct Peer {
     addr: SocketAddrV4,

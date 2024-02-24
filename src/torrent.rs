@@ -23,12 +23,12 @@ pub struct Info {
     pub plength: usize,
     pub pieces: Hashes,
     #[serde(flatten)]
-    pub keys: Key,
+    pub keys: Keys,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]
-pub enum Key {
+pub enum Keys {
     SingleFile { length: usize },
     MutilFile { files: Vec<File> },
 }
@@ -49,15 +49,22 @@ impl Torrent {
 
     pub fn print_tree(&self) {
         match &self.info.keys {
-            Key::SingleFile { length } => {
+            Keys::SingleFile { length } => {
                 println!("File length: {}", length);
             }
-            Key::MutilFile { files } => {
+            Keys::MutilFile { files } => {
                 for file in files {
                     println!("File length: {}", file.length);
                     println!("File path: {:?}", file.path);
                 }
             }
+        }
+    }
+
+    pub fn length(&self) -> usize {
+        match &self.info.keys {
+            Keys::SingleFile { length } => *length,
+            Keys::MutilFile { files } => files.iter().map(|file| file.length).sum(),
         }
     }
 }
