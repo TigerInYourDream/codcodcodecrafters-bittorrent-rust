@@ -231,7 +231,7 @@ impl Piece {
 
     const PIECE_LEAD: usize = mem::size_of::<Piece<()>>();
 
-    fn ref_from_bytes(data: &[u8]) -> Option<&Self> {
+    pub fn ref_from_bytes(data: &[u8]) -> Option<&Self> {
         if data.len() < Self::PIECE_LEAD {
             return None;
         }

@@ -1,5 +1,10 @@
+use std::path::Path;
+
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sha1::Digest;
+
+use crate::download::{self, Downloaded};
 
 use self::hashes::Hashes;
 
@@ -33,7 +38,7 @@ pub enum Keys {
     MutilFile { files: Vec<File> },
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct File {
     pub length: usize,
     pub path: Vec<String>,
@@ -66,6 +71,16 @@ impl Torrent {
             Keys::SingleFile { length } => *length,
             Keys::MutilFile { files } => files.iter().map(|file| file.length).sum(),
         }
+    }
+
+    pub async fn read(file: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let dot_torrent = tokio::fs::read(file).await.context("read torrent file")?;
+        let t: Torrent = serde_bencode::from_bytes(&dot_torrent).context("parse torrent file")?;
+        Ok(t)
+    }
+
+    pub async fn download_all(&self) -> anyhow::Result<Downloaded> {
+        download::all(self).await
     }
 }
 
