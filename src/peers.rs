@@ -1,14 +1,193 @@
 use std::{mem, net::SocketAddrV4};
-
+use anyhow::Context;
 use bytes::{Buf, BufMut};
-use tokio::net::TcpStream;
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 use tokio_util::codec::{Decoder, Encoder, Framed};
+use futures_util::{SinkExt, StreamExt};
+use crate::BLOCK_MAX;
 
-pub(crate) struct Peers {
+pub(crate) struct Peer {
     addr: SocketAddrV4,
     stream: Framed<TcpStream, MessageFramer>,
-    bitfiled: Bitfield,
+    bitfield: Bitfield,
     choked: bool,
+}
+
+impl Peer {
+    pub async fn new(peer_addr: SocketAddrV4, info_hash: [u8; 20]) -> anyhow::Result<Self> {
+        let mut peer = tokio::net::TcpStream::connect(peer_addr)
+            .await
+            .context("connect to peer")?;
+        let mut handshake = Handshake::new(info_hash, *b"00112233445566778899");
+        {
+            let handshake_bytes = handshake.as_bytes_mut();
+            peer.write_all(handshake_bytes)
+                .await
+                .context("write handshake")?;
+            peer.read_exact(handshake_bytes)
+                .await
+                .context("read handshake")?;
+        }
+        anyhow::ensure!(handshake.length == 19);
+        anyhow::ensure!(&handshake.bittorrent == b"BitTorrent protocol");
+        let mut peer = tokio_util::codec::Framed::new(peer, MessageFramer);
+        let bitfield = peer
+            // method from future_util streamExt
+            .next()
+            .await
+            .expect("peer always sends a bitfields")
+            .context("peer message was invalid")?;
+        anyhow::ensure!(bitfield.tag == MessageTag::Bitfield);
+
+        Ok(Self {
+            addr: peer_addr,
+            stream: peer,
+            bitfield: Bitfield::from_payload(bitfield.payload),
+            choked: true,
+        })
+    }
+
+    pub(crate) fn has_piece(&self, piece_i: usize) -> bool {
+        self.bitfield.has_piece(piece_i)
+    }
+
+    pub(crate) async fn participate(
+        &mut self,
+        piece_i: usize,
+        piece_size: usize,
+        nblocks: usize,
+        submit: kanal::AsyncSender<usize>,
+        tasks: kanal::AsyncReceiver<usize>,
+        finish: tokio::sync::mpsc::Sender<Message>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.bitfield.has_piece(piece_i));
+
+        self.stream
+            .send(Message {
+                tag: MessageTag::Interested,
+                payload: Vec::new(),
+            })
+            .await
+            .context("send interested message")?;
+
+        // TODO: timeout, error, and return block to submit if .next() timed out
+        'task: loop {
+            while self.choked {
+                let unchoke = self
+                    .stream
+                    .next()
+                    .await
+                    .expect("peer always sends an unchoke")
+                    .context("peer message was invalid")?;
+                match unchoke.tag {
+                    MessageTag::Unchoke => {
+                        self.choked = false;
+                        assert!(unchoke.payload.is_empty());
+                        break;
+                    }
+                    MessageTag::Have => {
+                        // TODO: update bitfield
+                        // TODO: add to list of peers for relevant piece
+                    }
+                    MessageTag::Interested
+                    | MessageTag::NotInterested
+                    | MessageTag::Request
+                    | MessageTag::Cancel => {
+                        // not allowing requests for now
+                    }
+                    MessageTag::Piece => {
+                        // piece that we no longer need/are responsible for
+                    }
+                    MessageTag::Choke => {
+                        anyhow::bail!("peer sent unchoke while unchoked");
+                    }
+                    MessageTag::Bitfield => {
+                        anyhow::bail!("peer sent bitfield after handshake has been completed");
+                    }
+                }
+            }
+            let Ok(block) = tasks.recv().await else {
+                break;
+            };
+
+            let block_size = if block == nblocks - 1 {
+                let md = piece_size % BLOCK_MAX;
+                if md == 0 {
+                    BLOCK_MAX
+                } else {
+                    md
+                }
+            } else {
+                BLOCK_MAX
+            };
+
+            let mut request = Request::new(
+                piece_i as u32,
+                (block * BLOCK_MAX) as u32,
+                block_size as u32,
+            );
+            let request_bytes = Vec::from(request.as_bytes_mut());
+            self.stream
+                .send(Message {
+                    tag: MessageTag::Request,
+                    payload: request_bytes,
+                })
+                .await
+                .with_context(|| format!("send request for block {block}"))?;
+
+            let mut msg;
+            loop {
+                msg = self
+                    .stream
+                    .next()
+                    .await
+                    .expect("peer always sends a piece")
+                    .context("peer message was invalid")?;
+
+                match msg.tag {
+                    MessageTag::Choke => {
+                        assert!(msg.payload.is_empty());
+                        self.choked = true;
+                        submit.send(block).await.expect("we still have a receiver");
+                        continue 'task;
+                    }
+                    MessageTag::Piece => {
+                        let piece = Piece::ref_from_bytes(&msg.payload[..])
+                            .expect("always get all Piece response fields from peer");
+
+                        if piece.index() as usize != piece_i
+                            || piece.begin() as usize != block * BLOCK_MAX
+                        {
+                            // piece that we no longer need/are responsible for
+                        } else {
+                            assert_eq!(piece.block().len(), block_size);
+                            break;
+                        }
+                    }
+                    MessageTag::Have => {
+                        // TODO: update bitfield
+                        // TODO: add to list of peers for relevant piece
+                    }
+                    MessageTag::Interested
+                    | MessageTag::NotInterested
+                    | MessageTag::Request
+                    | MessageTag::Cancel => {
+                        // not allowing requests for now
+                    }
+                    MessageTag::Unchoke => {
+                        anyhow::bail!("peer sent unchoke while unchoked");
+                    }
+                    MessageTag::Bitfield => {
+                        anyhow::bail!("peer sent bitfield after handshake has been completed");
+                    }
+                }
+            }
+
+            finish.send(msg).await.expect("receiver should not go away while there are active peers (us) and missing blocks (this one)");
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +244,7 @@ impl Piece {
     }
 }
 #[repr(C, packed)]
-pub struct HandShake {
+pub struct Handshake {
     length: u8,
     bittorrent: [u8; 19],
     resverd: [u8; 8],
@@ -73,9 +252,9 @@ pub struct HandShake {
     peer_id: [u8; 20],
 }
 
-impl HandShake {
-    pub fn new(info_hash: [u8; 20], peer_id: [u8; 20]) -> HandShake {
-        HandShake {
+impl Handshake {
+    pub fn new(info_hash: [u8; 20], peer_id: [u8; 20]) -> Handshake {
+        Handshake {
             length: 19,
             bittorrent: *b"BitTorrent protocol",
             resverd: [0; 8],
@@ -209,6 +388,7 @@ impl Bitfield {
         let Some(&byte) = self.payload.get(byte_i) else {
             return false;
         };
+        // Check if the bit at `bit_i` is set.
         byte & 1u8.rotate_right(bit_i + 1) != 0
     }
 
@@ -224,5 +404,41 @@ impl Bitfield {
 
     fn from_payload(payload: Vec<u8>) -> Bitfield {
         Self { payload }
+    }
+}
+#[repr(C)]
+#[repr(packed)]
+pub struct Request {
+    index: [u8; 4],
+    begin: [u8; 4],
+    length: [u8; 4],
+}
+
+impl Request {
+    pub fn new(index: u32, begin: u32, length: u32) -> Self {
+        Self {
+            index: index.to_be_bytes(),
+            begin: begin.to_be_bytes(),
+            length: length.to_be_bytes(),
+        }
+    }
+
+    pub fn index(&self) -> u32 {
+        u32::from_be_bytes(self.index)
+    }
+
+    pub fn begin(&self) -> u32 {
+        u32::from_be_bytes(self.begin)
+    }
+
+    pub fn length(&self) -> u32 {
+        u32::from_be_bytes(self.length)
+    }
+
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        let bytes = self as *mut Self as *mut [u8; std::mem::size_of::<Self>()];
+        // Safety: Self is a POD with repr(c) and repr(packed)
+        let bytes: &mut [u8; std::mem::size_of::<Self>()] = unsafe { &mut *bytes };
+        bytes
     }
 }

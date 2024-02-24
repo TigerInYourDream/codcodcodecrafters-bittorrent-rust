@@ -9,6 +9,8 @@ use crate::torrent::Torrent;
 pub mod peers;
 pub mod torrent;
 
+pub const BLOCK_MAX: usize = 1 << 14;
+
 #[derive(Debug, Parser)]
 pub struct Args {
     #[command(subcommand)]
