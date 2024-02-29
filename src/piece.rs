@@ -28,7 +28,6 @@ impl PartialOrd for Piece {
     }
 }
 
-#[allow(dead_code)]
 impl Piece {
     pub(crate) fn new(piece_i: usize, t: &Torrent, peers: &[Peer]) -> Self {
         let piece_hash = t.info.pieces.0[piece_i];
