@@ -101,7 +101,7 @@ pub(crate) async fn all(t: &Torrent) -> anyhow::Result<Downloaded> {
     let mut need_pieces = BinaryHeap::new();
     let mut no_peers = Vec::new();
     for piece_i in 0..t.info.pieces.0.len() {
-        let piece = Piece::new(piece_i, &t, &peers);
+        let piece = Piece::new(piece_i, t, &peers);
         if piece.peers().is_empty() {
             no_peers.push(piece);
         } else {
@@ -213,10 +213,7 @@ pub(crate) async fn all(t: &Torrent) -> anyhow::Result<Downloaded> {
 
         let mut hasher = Sha1::new();
         hasher.update(&all_blocks);
-        let hash: [u8; 20] = hasher
-            .finalize()
-            .try_into()
-            .expect("GenericArray<_, 20> == [_; 20]");
+        let hash: [u8; 20] = hasher.finalize().into();
         assert_eq!(hash, piece.hash());
 
         all_pieces[piece.index() * t.info.plength..][..piece_size].copy_from_slice(&all_blocks);
