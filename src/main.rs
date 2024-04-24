@@ -2,8 +2,6 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use futures_util::{SinkExt, StreamExt};
 use peer::Handshake;
-use serde_bencode;
-use serde_json;
 use sha1::{Digest, Sha1};
 use std::{net::SocketAddrV4, path::PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -14,11 +12,11 @@ use crate::{
     torrent::Torrent,
 };
 
+pub mod download;
 pub mod peer;
+pub mod piece;
 pub mod torrent;
 pub mod tracker;
-pub mod download;
-pub mod piece;
 
 pub const BLOCK_MAX: usize = 1 << 14;
 
@@ -55,7 +53,7 @@ pub enum Command {
         #[arg(short)]
         output: PathBuf,
         torrent: PathBuf,
-    }
+    },
 }
 
 pub fn decode(encode: &str) -> Result<serde_json::Value> {
@@ -103,7 +101,7 @@ pub async fn main() -> anyhow::Result<()> {
             println!("{:?}", decoded_value);
             match decoded_value {
                 Ok(value) => {
-                    println!("{}", value.to_string());
+                    println!("{}", value);
                 }
                 Err(e) => {
                     println!("Error: {}", e);
@@ -120,7 +118,7 @@ pub async fn main() -> anyhow::Result<()> {
                 todo!("Handle multi-file torrents");
             }
             let hash_info = t.info_hash();
-            println!("Info Hash: {}", hex::encode(&hash_info));
+            println!("Info Hash: {}", hex::encode(hash_info));
             println!("Piece Length: {}", t.info.plength);
             println!("Pieces Hashes:");
             for hash in t.info.pieces.0 {
@@ -190,7 +188,7 @@ pub async fn main() -> anyhow::Result<()> {
             }
             assert_eq!(handshake.length, 19);
             assert_eq!(&handshake.bittorrent, b"BitTorrent protocol");
-            println!("Peer ID: {}", hex::encode(&handshake.peer_id));
+            println!("Peer ID: {}", hex::encode(handshake.peer_id));
         }
         Command::DownloadPiece {
             output,
@@ -329,10 +327,7 @@ pub async fn main() -> anyhow::Result<()> {
 
             let mut hasher = Sha1::new();
             hasher.update(&all_blocks);
-            let hash: [u8; 20] = hasher
-                .finalize()
-                .try_into()
-                .expect("GenericArray<_, 20> == [_; 20]");
+            let hash: [u8; 20] = hasher.finalize().into();
             assert_eq!(&hash, piece_hash);
 
             tokio::fs::write(&output, all_blocks)
@@ -349,8 +344,7 @@ pub async fn main() -> anyhow::Result<()> {
                 output,
                 files.into_iter().next().expect("always one file").bytes(),
             )
-            .await?;            
-
+            .await?;
         }
     }
 

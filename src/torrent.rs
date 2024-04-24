@@ -49,7 +49,7 @@ impl Torrent {
         let info_bytes = serde_bencode::to_bytes(&self.info).expect("re-encode to serde_bencode");
         let mut hasher = sha1::Sha1::new();
         hasher.update(&info_bytes);
-        hasher.finalize().try_into().expect("20 bytes")
+        hasher.finalize().into()
     }
 
     pub fn print_tree(&self) {
